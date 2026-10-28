@@ -1,0 +1,82 @@
+﻿@inject UserSettingsService SettingsService
+@{
+    var signedIn = User.Identity?.IsAuthenticated == true;
+    var me = signedIn ? CurrentUser.From(User) : null;
+    var settings = me is null ? new UserSettings() : await SettingsService.GetAsync(me.Id);
+    var path = Context.Request.Path.Value ?? "/";
+    string Active(string prefix) => (prefix == "/" ? path == "/" : path.StartsWith(prefix, StringComparison.OrdinalIgnoreCase)) ? "active" : "";
+}
+<!DOCTYPE html>
+<html lang="en" data-theme="@settings.Theme.ToString().ToLowerInvariant()" data-mode="@settings.Mode.ToString().ToLowerInvariant()"
+      data-bs-theme="@(settings.Mode == ColorMode.Dark ? "dark" : "light")" data-density="@settings.Density.ToString().ToLowerInvariant()">
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>@ViewData["Title"] · PermitTrack demo</title>
+    <link rel="icon" href="~/favicon.ico" asp-append-version="true" />
+    <script>
+        // "System" color mode follows the OS setting; runs before paint to avoid a light flash.
+        (() => {
+            const root = document.documentElement, query = matchMedia("(prefers-color-scheme: dark)");
+            const apply = () => { if (root.dataset.mode === "system") root.dataset.bsTheme = query.matches ? "dark" : "light"; };
+            apply();
+            query.addEventListener("change", apply);
+        })();
+    </script>
+    <link rel="stylesheet" href="~/lib/bootstrap/dist/css/bootstrap.min.css" />
+    <link rel="stylesheet" href="~/css/site.css" asp-append-version="true" />
+</head>
+<body>
+    <header class="topbar">
+        <div class="container topbar-inner">
+            <a class="brand" asp-page="/Index">
+                <span class="brand-mark" aria-hidden="true">PT</span>
+                <span>PermitTrack</span>
+                <span class="demo-tag">demo</span>
+            </a>
+            @if (me is not null)
+            {
+                <nav class="mainnav" aria-label="Main">
+                    <a class="@Active("/")" asp-page="/Index">Dashboard</a>
+                    <a class="@(Active("/Permits/Edit") == "" ? Active("/Permits") : "")" asp-page="/Permits/Index">Permits</a>
+                    @if (me.Role != UserRole.Applicant)
+                    {
+                        <a class="@Active("/Inspections")" asp-page="/Inspections/Index">Inspections</a>
+                    }
+                    @if (me.Role == UserRole.Applicant)
+                    {
+                        <a class="@Active("/Permits/Edit")" asp-page="/Permits/Edit">Apply</a>
+                    }
+                </nav>
+                <form method="post" asp-page="/Account/Login" asp-page-handler="Logout" class="userbox">
+                    <span class="user-name">@me.Name</span>
+                    <span class="role-chip role-@me.Role.ToString().ToLowerInvariant()">@me.Role</span>
+                    <a asp-page="/Account/Settings" class="icon-btn @Active("/Account/Settings")" title="Settings" aria-label="Settings">
+                        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></svg>
+                    </a>
+                    <button type="submit" class="btn btn-sm btn-link">Switch user</button>
+                </form>
+            }
+        </div>
+    </header>
+
+    <main class="container py-4" role="main">
+        @if (TempData["Flash"] is string flash)
+        {
+            <div class="alert alert-success" role="status">@flash</div>
+        }
+        @if (TempData["Error"] is string error)
+        {
+            <div class="alert alert-danger" role="alert">@error</div>
+        }
+        @RenderBody()
+    </main>
+
+    <footer class="container footer-note">
+        PermitTrack — a portfolio demo of a building permit &amp; inspection system. All people, addresses and fees are fictional.
+    </footer>
+
+    <script src="~/lib/bootstrap/dist/js/bootstrap.bundle.min.js"></script>
+    @await RenderSectionAsync("Scripts", required: false)
+</body>
+</html>

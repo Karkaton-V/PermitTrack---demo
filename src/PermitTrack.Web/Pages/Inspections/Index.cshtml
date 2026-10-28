@@ -1,0 +1,60 @@
+@page
+@model PermitTrack.Web.Pages.Inspections.IndexModel
+@{
+    ViewData["Title"] = "Inspections";
+    string DayLabel(DateOnly d) => d < Model.Today ? $"Overdue · {d:ddd, MMM d}" : d == Model.Today ? "Today" : d == Model.Today.AddDays(1) ? "Tomorrow" : d.ToString("dddd, MMM d");
+}
+
+<div class="page-head">
+    <h1>Inspections</h1>
+    <div class="btn-group" role="group" aria-label="Whose inspections">
+        <a class="btn btn-sm @(Model.ShowingMine ? "btn-primary" : "btn-outline-primary")" asp-route-mine="true">Assigned to me</a>
+        <a class="btn btn-sm @(!Model.ShowingMine ? "btn-primary" : "btn-outline-primary")" asp-route-mine="false">Everyone</a>
+    </div>
+</div>
+
+@if (Model.Days.Count == 0)
+{
+    <section class="panel"><p class="empty">No open inspections.</p></section>
+}
+@foreach (var day in Model.Days)
+{
+    <section class="panel mb-3">
+        <h2 class="panel-title @(day.Key < Model.Today ? "text-danger" : "")">@DayLabel(day.Key) <span class="count">@day.Count()</span></h2>
+        <ul class="rows">
+            @foreach (var i in day)
+            {
+                <li>
+                    <a asp-page="Result" asp-route-id="@i.Id" class="row-link">
+                        <span>
+                            <strong>@Ui.Label(i.Type)</strong> · @i.Permit!.Number<br />
+                            <span class="small text-secondary">@i.Permit.Address</span>
+                        </span>
+                        <span class="small text-secondary text-end">@(i.Inspector?.Name ?? "Unassigned")</span>
+                    </a>
+                </li>
+            }
+        </ul>
+    </section>
+}
+
+@if (Model.RecentlyCompleted.Count > 0)
+{
+    <section class="panel mt-4">
+        <h2 class="panel-title">Recently completed</h2>
+        <ul class="rows">
+            @foreach (var i in Model.RecentlyCompleted)
+            {
+                <li>
+                    <a asp-page="/Permits/Details" asp-route-id="@i.PermitId" class="row-link">
+                        <span>
+                            <strong>@Ui.Label(i.Type)</strong> · @i.Permit!.Number <span class="badge-status @Ui.ResultClass(i.Result)">@i.Result</span><br />
+                            <span class="small text-secondary">@i.Permit.Address</span>
+                        </span>
+                        <span class="small text-secondary text-end">@i.CompletedAt?.ToString("MMM d")<br />@i.Inspector?.Name</span>
+                    </a>
+                </li>
+            }
+        </ul>
+    </section>
+}

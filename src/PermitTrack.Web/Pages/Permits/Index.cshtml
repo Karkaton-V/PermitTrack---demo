@@ -1,0 +1,38 @@
+@page
+@model PermitTrack.Web.Pages.Permits.IndexModel
+@{
+    ViewData["Title"] = "Permits";
+}
+
+<div class="page-head">
+    <h1>Permits</h1>
+    <a class="btn btn-outline-secondary btn-sm" asp-page-handler="Export" asp-route-q="@Model.Q" asp-route-status="@Model.Status" asp-route-type="@Model.Type">Export CSV</a>
+</div>
+
+<form method="get" class="filters panel mb-3" role="search">
+    <input asp-for="Q" class="form-control" placeholder="Search number, address, contractor, applicant…" aria-label="Search" />
+    <select name="status" class="form-select" aria-label="Status">
+        <option value="">Any status</option>
+        @foreach (var s in Enum.GetValues<PermitStatus>())
+        {
+            <option value="@s" selected="@(Model.Status == s)">@Ui.Label(s)</option>
+        }
+    </select>
+    <select name="type" class="form-select" aria-label="Type">
+        <option value="">Any type</option>
+        @foreach (var t in Enum.GetValues<PermitType>())
+        {
+            <option value="@t" selected="@(Model.Type == t)">@t</option>
+        }
+    </select>
+    <button class="btn btn-primary" type="submit">Filter</button>
+    @if (Model.Q is not null || Model.Status is not null || Model.Type is not null)
+    {
+        <a asp-page="/Permits/Index" class="btn btn-link">Clear</a>
+    }
+</form>
+
+<section class="panel">
+    <p class="small text-secondary">@Model.Permits.Count permit@(Model.Permits.Count == 1 ? "" : "s")</p>
+    <partial name="_PermitTable" model="Model.Permits" />
+</section>

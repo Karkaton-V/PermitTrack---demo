@@ -1,0 +1,186 @@
+﻿@page
+@model IndexModel
+@{
+    ViewData["Title"] = "Dashboard";
+    var me = Model.Me;
+
+    string Title(string id) => id switch
+    {
+        "inspections-today" when me.Role == UserRole.Inspector => "My route today",
+        _ => WidgetCatalog.Find(id)!.Title
+    };
+    int? Count(string id) => id switch
+    {
+        "review-queue" => Model.ReviewQueue.Count,
+        "expiring" => Model.ExpiringSoon.Count,
+        "inspections-today" => Model.TodaysInspections.Count,
+        "attention" => Model.NeedsAttention.Count,
+        "my-permits" => Model.MyPermits.Count,
+        _ => null
+    };
+}
+
+<div class="page-head">
+    <div>
+        <h1>Good @(Model.Now.Hour < 12 ? "morning" : Model.Now.Hour < 17 ? "afternoon" : "evening"), @me.Name.Split(' ')[0]</h1>
+        <p class="text-secondary mb-0">@Model.Now.ToString("dddd, MMMM d, yyyy")</p>
+    </div>
+    <div class="d-flex gap-2">
+        <a class="btn btn-outline-secondary btn-sm" asp-page="/Account/Settings" asp-fragment="dashboard">Customize dashboard</a>
+        @if (me.Role == UserRole.Applicant)
+        {
+            <a class="btn btn-primary btn-sm" asp-page="/Permits/Edit">Start a new application</a>
+        }
+    </div>
+</div>
+
+@if (Model.Widgets.Count == 0)
+{
+    <section class="panel text-center py-5">
+        <p class="mb-3">All dashboard widgets are hidden.</p>
+        <a class="btn btn-primary" asp-page="/Account/Settings" asp-fragment="dashboard">Choose widgets</a>
+    </section>
+}
+
+<div class="dash-grid" style="--cols: @Model.Columns">
+    @foreach (var w in Model.Widgets)
+    {
+        var count = Count(w.Id);
+        <section class="panel widget @(w.Size == WidgetSize.Wide ? "widget-wide" : "")" data-widget="@w.Id">
+            <h2 class="panel-title">
+                <span class="widget-title">@Title(w.Id) @if (count is not null) { <span class="count">@count</span> }</span>
+                <form method="post" asp-page-handler="Hide" class="widget-hide">
+                    <input type="hidden" name="widget" value="@w.Id" />
+                    <button type="submit" title="Hide this widget" aria-label="Hide @Title(w.Id)">×</button>
+                </form>
+            </h2>
+
+            @switch (w.Id)
+            {
+                case "kpis":
+                    <div class="kpi-row">
+                        <div class="kpi"><span class="kpi-value">@Model.StatusCounts.GetValueOrDefault(PermitStatus.Submitted)</span><span class="kpi-label">Awaiting review</span></div>
+                        <div class="kpi @(Model.OverdueCount > 0 ? "kpi-alert" : "")"><span class="kpi-value">@Model.OverdueCount</span><span class="kpi-label">Overdue (&gt; @InspectionRules.ReviewTargetDays days)</span></div>
+                        <div class="kpi"><span class="kpi-value">@Model.IssuedCount</span><span class="kpi-label">Active permits</span></div>
+                        <div class="kpi"><span class="kpi-value">@Model.TodaysInspections.Count</span><span class="kpi-label">Inspections today</span></div>
+                        <div class="kpi"><span class="kpi-value">@Model.FeesCollected30Days.ToString("C0")</span><span class="kpi-label">Fees collected, 30 days</span></div>
+                    </div>
+                    break;
+
+                case "attention":
+                    if (Model.NeedsAttention.Count == 0)
+                    {
+                        <p class="empty">You're all caught up.</p>
+                    }
+                    else
+                    {
+                        <ul class="attention-list">
+                            @foreach (var item in Model.NeedsAttention)
+                            {
+                                <li>
+                                    <a asp-page="/Permits/Details" asp-route-id="@item.Permit.Id" class="fw-semibold">@item.Permit.Number</a>
+                                    <span class="text-secondary">· @item.Permit.Address</span>
+                                    <div>@item.Message</div>
+                                </li>
+                            }
+                        </ul>
+                    }
+                    break;
+
+                case "my-permits":
+                    <partial name="_PermitTable" model="Model.MyPermits" />
+                    break;
+
+                case "review-queue":
+                    if (Model.ReviewQueue.Count == 0)
+                    {
+                        <p class="empty">Nothing waiting. Nice.</p>
+                    }
+                    else
+                    {
+                        <ul class="rows">
+                            @foreach (var p in Model.ReviewQueue)
+                            {
+                                var waited = (int)(Model.Now - p.SubmittedAt!.Value).TotalDays;
+                                <li>
+                                    <a asp-page="/Permits/Details" asp-route-id="@p.Id" class="row-link">
+                                        <span>
+                                            <strong>@p.Number</strong> <span class="badge-status @Ui.StatusClass(p.Status)">@Ui.Label(p.Status)</span><br />
+                                            <span class="small text-secondary">@p.Address</span>
+                                        </span>
+                                        <span class="small text-end @(InspectionRules.IsReviewOverdue(p, Model.Now) ? "text-danger fw-semibold" : "text-secondary")">
+                                            @(waited == 0 ? "today" : waited == 1 ? "1 day" : $"{waited} days")<br />
+                                            @(p.FeePaid ? "fee paid" : "fee due")
+                                        </span>
+                                    </a>
+                                </li>
+                            }
+                        </ul>
+                    }
+                    break;
+
+                case "expiring":
+                    if (Model.ExpiringSoon.Count == 0)
+                    {
+                        <p class="empty">No permits close to expiring.</p>
+                    }
+                    else
+                    {
+                        <ul class="rows">
+                            @foreach (var p in Model.ExpiringSoon)
+                            {
+                                <li>
+                                    <a asp-page="/Permits/Details" asp-route-id="@p.Id" class="row-link">
+                                        <span><strong>@p.Number</strong><br /><span class="small text-secondary">@p.Address</span></span>
+                                        <span class="small text-warning-emphasis fw-semibold">@InspectionRules.ExpiresOn(p)!.Value.ToString("MMM d")</span>
+                                    </a>
+                                </li>
+                            }
+                        </ul>
+                    }
+                    <p class="small text-secondary mt-3 mb-0">Permits lapse @InspectionRules.DaysUntilExpiration days after issuance or the last passed inspection.</p>
+                    break;
+
+                case "inspections-today":
+                    <partial name="_InspectionList" model="Model.TodaysInspections" />
+                    break;
+
+                case "inspections-upcoming":
+                    <partial name="_InspectionList" model="Model.UpcomingInspections" />
+                    break;
+
+                case "status-breakdown":
+                    var max = Math.Max(1, Model.StatusCounts.Values.DefaultIfEmpty(0).Max());
+                    <ul class="bars">
+                        @foreach (var s in Enum.GetValues<PermitStatus>())
+                        {
+                            var n = Model.StatusCounts.GetValueOrDefault(s);
+                            <li>
+                                <a class="bar-row text-reset text-decoration-none" asp-page="/Permits/Index" asp-route-status="@s">
+                                    <span>@Ui.Label(s)</span>
+                                    <span class="bar-track"><span class="bar-fill d-block" style="width: @(n * 100 / max)%"></span></span>
+                                    <span class="num">@n</span>
+                                </a>
+                            </li>
+                        }
+                    </ul>
+                    break;
+
+                case "recent-activity":
+                    if (Model.RecentActivity.Count == 0)
+                    {
+                        <p class="empty">No activity yet.</p>
+                    }
+                    foreach (var e in Model.RecentActivity)
+                    {
+                        <div class="activity-item">
+                            <a asp-page="/Permits/Details" asp-route-id="@e.PermitId" class="fw-semibold small">@e.Permit!.Number</a>
+                            <span class="small">· @e.Action</span>
+                            <div class="small text-secondary">@e.At.ToString("MMM d, h:mm tt") · @(e.User?.Name ?? "System")</div>
+                        </div>
+                    }
+                    break;
+            }
+        </section>
+    }
+</div>

@@ -1,0 +1,41 @@
+@page
+@model PermitTrack.Web.Pages.Account.LoginModel
+@{
+    ViewData["Title"] = "Sign in";
+    var blurbs = new Dictionary<UserRole, string>
+    {
+        [UserRole.Applicant] = "Apply for permits, upload plans, respond to corrections, request inspections.",
+        [UserRole.Clerk] = "Review applications, record fee payments, approve or send back for corrections.",
+        [UserRole.Inspector] = "Work today's inspection route and record pass/fail results from the field.",
+        [UserRole.Admin] = "Everything staff can do, plus override inspection results.",
+    };
+}
+
+<div class="login-wrap">
+    <h1 class="h3 mb-1">Sign in to PermitTrack</h1>
+    <p class="text-secondary mb-4">This is a demo. Choose a person to see the system from their role.</p>
+
+    @foreach (var group in Model.Users.GroupBy(u => u.Role))
+    {
+        <section class="mb-4">
+            <h2 class="section-label">@group.Key</h2>
+            <p class="small text-secondary mb-2">@blurbs[group.Key]</p>
+            <div class="user-grid">
+                @foreach (var u in group)
+                {
+                    <form method="post">
+                        <input type="hidden" name="userId" value="@u.Id" />
+                        <input type="hidden" asp-for="ReturnUrl" />
+                        <button type="submit" class="user-card">
+                            <span class="avatar">@string.Concat(u.Name.Split(' ').Select(w => w[0]))</span>
+                            <span>
+                                <strong>@u.Name</strong><br />
+                                <span class="small text-secondary">@u.Company</span>
+                            </span>
+                        </button>
+                    </form>
+                }
+            </div>
+        </section>
+    }
+</div>

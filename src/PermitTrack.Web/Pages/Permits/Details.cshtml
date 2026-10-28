@@ -1,0 +1,243 @@
+@page "{id:int}"
+@model PermitTrack.Web.Pages.Permits.DetailsModel
+@{
+    var p = Model.Permit;
+    ViewData["Title"] = p.Number;
+    var expires = InspectionRules.ExpiresOn(p);
+
+    // Happy-path steps for the progress bar; off-path outcomes replace the step where they happened.
+    var steps = new List<(string Label, string State)>();
+    var order = new[] { PermitStatus.Draft, PermitStatus.Submitted, PermitStatus.UnderReview, PermitStatus.Issued, PermitStatus.Finaled };
+    var current = p.Status switch
+    {
+        PermitStatus.CorrectionsRequired or PermitStatus.Rejected => 2,
+        PermitStatus.Withdrawn => p.SubmittedAt is null ? 0 : 1,
+        _ => Array.IndexOf(order, p.Status)
+    };
+    for (var i = 0; i < order.Length; i++)
+    {
+        var label = i == current && p.Status is PermitStatus.CorrectionsRequired or PermitStatus.Rejected or PermitStatus.Withdrawn
+            ? Ui.Label(p.Status) : Ui.Label(order[i]);
+        var state = i < current ? "done" : i == current ? (p.Status is PermitStatus.Rejected or PermitStatus.Withdrawn ? "stopped" : p.Status == PermitStatus.Finaled ? "done" : "current") : "todo";
+        steps.Add((label, state));
+    }
+    string[] needsNote = [nameof(PermitAction.RequestCorrections), nameof(PermitAction.Reject)];
+    var latestCorrection = p.Status == PermitStatus.CorrectionsRequired
+        ? p.Events.Where(e => e.Action.EndsWith(Ui.Label(PermitStatus.CorrectionsRequired))).OrderByDescending(e => e.At).FirstOrDefault()
+        : null;
+}
+
+<nav class="small mb-2"><a asp-page="/Permits/Index">← All permits</a></nav>
+
+<div class="page-head">
+    <div>
+        <h1>@p.Number <span class="badge-status @Ui.StatusClass(p.Status) align-middle">@Ui.Label(p.Status)</span></h1>
+        <p class="text-secondary mb-0">@p.Type permit · @p.Address</p>
+    </div>
+    @if (Model.CanEdit)
+    {
+        <a class="btn btn-outline-primary" asp-page="Edit" asp-route-id="@p.Id">Edit application</a>
+    }
+</div>
+
+<ol class="stepper" aria-label="Permit progress">
+    @foreach (var s in steps)
+    {
+        <li class="step step-@s.State" aria-current="@(s.State == "current" ? "step" : null)">@s.Label</li>
+    }
+</ol>
+
+@if (latestCorrection is not null)
+{
+    <div class="alert alert-warning">
+        <strong>Corrections requested by @latestCorrection.User?.Name:</strong> @latestCorrection.Note
+    </div>
+}
+
+@if (Model.Actions.Count > 0)
+{
+    <form method="post" asp-page-handler="Action" asp-route-id="@p.Id" class="panel action-panel mb-4">
+        <h2 class="panel-title">Next step</h2>
+        @if (Model.Actions.Any(a => needsNote.Contains(a.Action.ToString())) || Model.Me.IsStaff)
+        {
+            <label for="note" class="form-label small text-secondary">Comment for the record (required to request corrections or reject)</label>
+            <textarea id="note" name="note" class="form-control mb-3" rows="2"></textarea>
+        }
+        <div class="d-flex flex-wrap gap-2">
+            @foreach (var a in Model.Actions)
+            {
+                var style = a.Action switch
+                {
+                    PermitAction.Approve or PermitAction.Submit or PermitAction.Resubmit or PermitAction.StartReview => "btn-primary",
+                    PermitAction.Reject or PermitAction.Withdraw => "btn-outline-danger",
+                    _ => "btn-outline-secondary"
+                };
+                <button type="submit" name="action" value="@a.Action" class="btn @style" disabled="@(!a.Allowed)"
+                        onclick="@(a.Action == PermitAction.Withdraw ? "return confirm('Withdraw this application? This cannot be undone.')" : null)">
+                    @(a.Action == PermitAction.Approve ? "Approve & issue permit" : Ui.Label(a.Action))
+                </button>
+            }
+        </div>
+        @foreach (var a in Model.Actions.Where(a => !a.Allowed))
+        {
+            <p class="small text-danger mt-2 mb-0">@Ui.Label(a.Action): @a.Reason</p>
+        }
+    </form>
+}
+
+<div class="detail-grid">
+    <div class="d-flex flex-column gap-4">
+        <section class="panel">
+            <h2 class="panel-title">Project</h2>
+            <p>@p.Description</p>
+            <dl class="facts">
+                <dt>Valuation</dt><dd>@p.Valuation.ToString("C0")</dd>
+                <dt>Parcel</dt><dd>@(p.ParcelNumber ?? "—")</dd>
+                <dt>Applicant</dt><dd>@p.Applicant!.Name <span class="text-secondary">· @p.Applicant.Company</span></dd>
+                <dt>Contractor</dt><dd>@(p.ContractorName is null ? "Owner-builder" : $"{p.ContractorName} (lic. {p.ContractorLicense ?? "n/a"})")</dd>
+                <dt>Reviewer</dt><dd>@(p.Reviewer?.Name ?? "—")</dd>
+                <dt>Submitted</dt><dd>@(p.SubmittedAt?.ToString("MMM d, yyyy") ?? "—")</dd>
+                <dt>Issued</dt><dd>@(p.IssuedAt?.ToString("MMM d, yyyy") ?? "—")</dd>
+                @if (p.FinaledAt is not null)
+                {
+                    <dt>Finaled</dt><dd>@p.FinaledAt.Value.ToString("MMM d, yyyy")</dd>
+                }
+                @if (expires is not null)
+                {
+                    <dt>Expires</dt>
+                    <dd class="@(expires <= Model.Now.AddDays(30) ? "text-danger fw-semibold" : "")">@expires.Value.ToString("MMM d, yyyy")
+                        <span class="text-secondary fw-normal small">(extends with each passed inspection)</span></dd>
+                }
+            </dl>
+        </section>
+
+        <section class="panel">
+            <h2 class="panel-title">Inspections</h2>
+            <ol class="checklist">
+                @foreach (var type in InspectionRules.RequiredFor(p.Type))
+                {
+                    var attempts = p.Inspections.Where(i => i.Type == type).OrderBy(i => i.ScheduledFor).ToList();
+                    var passed = attempts.Any(i => i.Result == InspectionResult.Passed);
+                    var pending = attempts.FirstOrDefault(i => i.Result == InspectionResult.Scheduled);
+                    <li class="@(passed ? "is-done" : pending is not null ? "is-pending" : "")">
+                        <div class="d-flex justify-content-between flex-wrap gap-2">
+                            <strong>@Ui.Label(type)</strong>
+                            <span class="small text-secondary">
+                                @(passed ? "Passed" : pending is not null ? $"Scheduled {pending.ScheduledFor:ddd MMM d} · {pending.Inspector?.Name}" : "Not yet requested")
+                            </span>
+                        </div>
+                        @foreach (var i in attempts.Where(i => i.Result != InspectionResult.Scheduled))
+                        {
+                            <div class="attempt">
+                                <span class="badge-status @Ui.ResultClass(i.Result)">@i.Result</span>
+                                <span class="small text-secondary">@i.CompletedAt?.ToString("MMM d") · @i.Inspector?.Name</span>
+                                @if (i.Notes is not null) { <div class="small">@i.Notes</div> }
+                            </div>
+                        }
+                        @if (pending is not null && (Model.Me.Id == pending.InspectorId || Model.Me.Role == UserRole.Admin))
+                        {
+                            <a class="btn btn-sm btn-primary mt-2" asp-page="/Inspections/Result" asp-route-id="@pending.Id">Record result</a>
+                        }
+                    </li>
+                }
+            </ol>
+
+            @if (Model.CanSchedule)
+            {
+                <form method="post" asp-page-handler="Schedule" asp-route-id="@p.Id" class="schedule-form">
+                    <div>
+                        <label class="form-label small" for="type">Request inspection</label>
+                        <select id="type" name="type" class="form-select">
+                            @foreach (var t in Model.Schedulable)
+                            {
+                                <option value="@t">@Ui.Label(t)@(p.Inspections.Any(i => i.Type == t && i.Result == InspectionResult.Failed) ? " (re-inspection)" : "")</option>
+                            }
+                        </select>
+                    </div>
+                    <div>
+                        <label class="form-label small" for="date">Date</label>
+                        <input id="date" name="date" type="date" class="form-control" min="@Model.EarliestInspectionDate.ToString("yyyy-MM-dd")" value="@Model.EarliestInspectionDate.ToString("yyyy-MM-dd")" required />
+                    </div>
+                    <button type="submit" class="btn btn-primary">Schedule</button>
+                </form>
+                <p class="small text-secondary mt-2 mb-0">Inspections run Monday–Friday and must be requested a day ahead. The least-booked inspector that day is assigned automatically.</p>
+            }
+            else if (p.Status != PermitStatus.Issued && !PermitWorkflow.IsClosed(p.Status))
+            {
+                <p class="small text-secondary mb-0">Inspections can be requested once the permit is issued.</p>
+            }
+        </section>
+
+        <section class="panel">
+            <h2 class="panel-title">Documents <span class="count">@p.Documents.Count</span></h2>
+            @if (p.Documents.Count == 0)
+            {
+                <p class="empty">No documents yet. Building, electrical, plumbing and mechanical applications need at least one plan or scope document before submitting.</p>
+            }
+            else
+            {
+                <ul class="rows">
+                    @foreach (var d in p.Documents.OrderBy(d => d.UploadedAt))
+                    {
+                        <li class="doc-row">
+                            <a asp-page-handler="Document" asp-route-id="@p.Id" asp-route-docId="@d.Id" target="_blank">@d.FileName</a>
+                            <span class="small text-secondary">@Ui.FileSize(d.SizeBytes) · @d.UploadedBy?.Name · @d.UploadedAt.ToString("MMM d")</span>
+                        </li>
+                    }
+                </ul>
+            }
+            @if (Model.CanUpload)
+            {
+                <form method="post" asp-page-handler="Upload" asp-route-id="@p.Id" enctype="multipart/form-data" class="upload-form">
+                    <input type="file" name="file" class="form-control" accept=".pdf,.png,.jpg,.jpeg" required aria-label="Document to upload" />
+                    <button type="submit" class="btn btn-outline-primary">Upload</button>
+                </form>
+                <p class="small text-secondary mt-1 mb-0">PDF, PNG or JPG, up to @Ui.FileSize(PermitService.MaxUploadBytes).</p>
+            }
+        </section>
+    </div>
+
+    <div class="d-flex flex-column gap-4">
+        <section class="panel">
+            <h2 class="panel-title">Fees</h2>
+            <table class="table table-sm mb-2">
+                <tbody>
+                    @foreach (var line in Model.Fee.Lines)
+                    {
+                        <tr><td class="small">@line.Description</td><td class="text-end">@line.Amount.ToString("C")</td></tr>
+                    }
+                </tbody>
+                <tfoot><tr class="fw-semibold"><td>Total</td><td class="text-end">@p.FeeTotal.ToString("C")</td></tr></tfoot>
+            </table>
+            @if (p.FeePaid)
+            {
+                <p class="text-success fw-semibold mb-0">Paid @p.FeePaidAt!.Value.ToString("MMM d") · @p.PaymentReference</p>
+            }
+            else if (Model.CanRecordPayment)
+            {
+                <form method="post" asp-page-handler="Pay" asp-route-id="@p.Id" class="d-flex gap-2">
+                    <input name="reference" class="form-control" placeholder="Receipt / check #" required aria-label="Payment reference" />
+                    <button type="submit" class="btn btn-outline-success text-nowrap">Record payment</button>
+                </form>
+            }
+            else if (!PermitWorkflow.IsClosed(p.Status))
+            {
+                <p class="text-danger small mb-0">Unpaid. @(p.Status == PermitStatus.Draft ? "Due after you submit." : "Pay at the permit office counter; the permit can't be issued until fees are paid.")</p>
+            }
+        </section>
+
+        <section class="panel">
+            <h2 class="panel-title">History</h2>
+            <ol class="timeline">
+                @foreach (var e in p.Events.OrderByDescending(e => e.At).ThenByDescending(e => e.Id))
+                {
+                    <li>
+                        <div class="fw-semibold small">@e.Action</div>
+                        @if (e.Note is not null) { <div class="small">@e.Note</div> }
+                        <div class="small text-secondary">@e.At.ToString("MMM d, h:mm tt") · @(e.User?.Name ?? "System")</div>
+                    </li>
+                }
+            </ol>
+        </section>
+    </div>
+</div>

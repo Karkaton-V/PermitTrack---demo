@@ -1,0 +1,128 @@
+@page "{id:int?}"
+@model PermitTrack.Web.Pages.Permits.EditModel
+@{
+    var editing = Model.Existing is not null;
+    ViewData["Title"] = editing ? $"Edit {Model.Existing!.Number}" : "New application";
+    var typeHelp = new Dictionary<PermitType, string>
+    {
+        [PermitType.Building] = "New construction, additions, remodels, decks, pools",
+        [PermitType.Electrical] = "Service upgrades, new circuits, EV chargers",
+        [PermitType.Plumbing] = "Water heaters, fixtures, drain & supply changes",
+        [PermitType.Mechanical] = "HVAC systems, ductwork, commercial hoods",
+        [PermitType.Demolition] = "Removing structures — flat fee",
+    };
+}
+
+<div class="page-head">
+    <div>
+        <h1>@ViewData["Title"]</h1>
+        @if (editing && Model.Existing!.Status == PermitStatus.CorrectionsRequired)
+        {
+            <p class="text-secondary mb-0">Update the application to address the reviewer's comments, then resubmit it from the permit page.</p>
+        }
+    </div>
+</div>
+
+<form method="post" class="grid-form">
+    <div class="panel">
+        <div asp-validation-summary="ModelOnly" class="alert alert-danger" role="alert"></div>
+
+        <fieldset class="mb-4">
+            <legend class="form-label fw-semibold">Permit type</legend>
+            <div class="type-grid">
+                @foreach (var t in Enum.GetValues<PermitType>())
+                {
+                    <label class="type-card @(editing && Model.Input.Type != t ? "disabled" : "")">
+                        <input type="radio" name="Input.Type" value="@t" checked="@(Model.Input.Type == t)" disabled="@(editing && Model.Input.Type != t)" data-fee-input />
+                        <span><strong>@t</strong><br /><span class="small text-secondary">@typeHelp[t]</span></span>
+                    </label>
+                }
+            </div>
+        </fieldset>
+
+        <div class="row g-3">
+            <div class="col-md-8">
+                <label asp-for="Input.Address" class="form-label"></label>
+                <input asp-for="Input.Address" class="form-control" placeholder="Street, city, state, ZIP" autocomplete="street-address" />
+                <span asp-validation-for="Input.Address" class="text-danger small"></span>
+            </div>
+            <div class="col-md-4">
+                <label asp-for="Input.ParcelNumber" class="form-label"></label> <span class="text-secondary small">(optional)</span>
+                <input asp-for="Input.ParcelNumber" class="form-control" placeholder="181413-012-0045" />
+            </div>
+            <div class="col-12">
+                <label asp-for="Input.Description" class="form-label"></label>
+                <textarea asp-for="Input.Description" class="form-control" rows="4" placeholder="Describe the work: what is being built, changed or removed, and its size."></textarea>
+                <span asp-validation-for="Input.Description" class="text-danger small"></span>
+            </div>
+            <div class="col-md-4">
+                <label asp-for="Input.Valuation" class="form-label"></label>
+                <div class="input-group">
+                    <span class="input-group-text">$</span>
+                    <input asp-for="Input.Valuation" class="form-control" type="number" min="0" step="100" inputmode="decimal" data-fee-input />
+                </div>
+                <span asp-validation-for="Input.Valuation" class="text-danger small"></span>
+                <div class="form-text">Labor and materials. Fees are based on this.</div>
+            </div>
+            <div class="col-md-4">
+                <label asp-for="Input.ContractorName" class="form-label"></label> <span class="text-secondary small">(blank if owner-builder)</span>
+                <input asp-for="Input.ContractorName" class="form-control" />
+            </div>
+            <div class="col-md-4">
+                <label asp-for="Input.ContractorLicense" class="form-label"></label>
+                <input asp-for="Input.ContractorLicense" class="form-control" />
+            </div>
+        </div>
+    </div>
+
+    <aside class="panel fee-panel" aria-live="polite">
+        <h2 class="panel-title">Fee estimate</h2>
+        <table class="table table-sm mb-2" id="fee-lines">
+            <tbody>
+                @foreach (var line in Model.Fee.Lines)
+                {
+                    <tr><td>@line.Description</td><td class="text-end">@line.Amount.ToString("C")</td></tr>
+                }
+            </tbody>
+            <tfoot>
+                <tr class="fw-semibold"><td>Total due before issuance</td><td class="text-end" id="fee-total">@Model.Fee.Total.ToString("C")</td></tr>
+            </tfoot>
+        </table>
+        <p class="small text-secondary mb-3">Paid to the permit office after review begins. Sample fee schedule.</p>
+        <button type="submit" class="btn btn-primary w-100">@(editing ? "Save changes" : "Save draft")</button>
+        <a class="btn btn-link w-100" asp-page="@(editing ? "Details" : "/Index")" asp-route-id="@Model.Existing?.Id">Cancel</a>
+    </aside>
+</form>
+
+@section Scripts {
+    <script src="~/lib/jquery/dist/jquery.min.js"></script>
+    <partial name="_ValidationScriptsPartial" />
+    <script>
+        (() => {
+            const money = new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" });
+            const body = document.querySelector("#fee-lines tbody");
+            const total = document.getElementById("fee-total");
+            let timer;
+
+            async function refresh() {
+                const type = document.querySelector("input[name='Input.Type']:checked")?.value;
+                const valuation = Math.max(0, Number(document.getElementById("Input_Valuation").value) || 0);
+                if (!type) return;
+                const res = await fetch(`/api/fees/estimate?type=${type}&valuation=${valuation}`);
+                if (!res.ok) return;
+                const fee = await res.json();
+                body.replaceChildren(...fee.lines.map(l => {
+                    const tr = document.createElement("tr");
+                    tr.innerHTML = "<td></td><td class='text-end'></td>";
+                    tr.children[0].textContent = l.description;
+                    tr.children[1].textContent = money.format(l.amount);
+                    return tr;
+                }));
+                total.textContent = money.format(fee.total);
+            }
+
+            document.querySelectorAll("[data-fee-input]").forEach(el =>
+                el.addEventListener("input", () => { clearTimeout(timer); timer = setTimeout(refresh, 200); }));
+        })();
+    </script>
+}

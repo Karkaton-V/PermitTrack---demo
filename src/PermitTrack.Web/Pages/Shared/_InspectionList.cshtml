@@ -1,0 +1,26 @@
+@model IEnumerable<Inspection>
+
+@if (!Model.Any())
+{
+    <p class="empty">No inspections scheduled.</p>
+}
+else
+{
+    <ul class="rows">
+        @foreach (var i in Model)
+        {
+            <li>
+                <a asp-page="/Inspections/Result" asp-route-id="@i.Id" class="row-link">
+                    <span>
+                        <strong>@Ui.Label(i.Type)</strong> · @i.Permit!.Number<br />
+                        <span class="small text-secondary">@i.Permit.Address</span>
+                    </span>
+                    <span class="small text-end text-secondary">
+                        @i.ScheduledFor.ToString("ddd MMM d")<br />
+                        @(i.Inspector?.Name ?? "Unassigned")
+                    </span>
+                </a>
+            </li>
+        }
+    </ul>
+}

@@ -1,0 +1,104 @@
+@page "{id:int}"
+@model PermitTrack.Web.Pages.Inspections.ResultModel
+@{
+    var i = Model.Inspection;
+    var p = i.Permit!;
+    ViewData["Title"] = $"{Ui.Label(i.Type)} inspection";
+    var previous = p.Inspections.Where(x => x.Type == i.Type && x.Id != i.Id && x.Result != InspectionResult.Scheduled).OrderByDescending(x => x.CompletedAt).ToList();
+}
+
+<div class="field-wrap">
+    <nav class="small mb-2"><a asp-page="Index">← Inspections</a></nav>
+
+    <section class="panel mb-3">
+        <p class="small text-secondary mb-1">@i.ScheduledFor.ToString("dddd, MMM d") · @(i.Inspector?.Name ?? "Unassigned")</p>
+        <h1 class="h3 mb-1">@Ui.Label(i.Type)</h1>
+        <p class="mb-2"><a asp-page="/Permits/Details" asp-route-id="@p.Id" class="fw-semibold">@p.Number</a> · @p.Type</p>
+        <p class="address-line mb-2">@p.Address</p>
+        <a class="btn btn-sm btn-outline-secondary" target="_blank" rel="noopener"
+           href="https://www.google.com/maps/search/?api=1&query=@Uri.EscapeDataString(p.Address)">Directions</a>
+        <p class="small mt-3 mb-0">@p.Description</p>
+        @if (p.ContractorName is not null)
+        {
+            <p class="small text-secondary mb-0">Contractor: @p.ContractorName</p>
+        }
+    </section>
+
+    @if (previous.Count > 0)
+    {
+        <section class="panel mb-3">
+            <h2 class="panel-title">Previous attempts</h2>
+            @foreach (var x in previous)
+            {
+                <div class="attempt">
+                    <span class="badge-status @Ui.ResultClass(x.Result)">@x.Result</span>
+                    <span class="small text-secondary">@x.CompletedAt?.ToString("MMM d") · @x.Inspector?.Name</span>
+                    @if (x.Notes is not null) { <div class="small">@x.Notes</div> }
+                </div>
+            }
+        </section>
+    }
+
+    @if (i.Result != InspectionResult.Scheduled)
+    {
+        <section class="panel">
+            <h2 class="panel-title">Result</h2>
+            <span class="badge-status @Ui.ResultClass(i.Result)">@i.Result</span>
+            <span class="small text-secondary">@i.CompletedAt?.ToString("MMM d, h:mm tt")</span>
+            @if (i.Notes is not null) { <p class="mt-2 mb-0">@i.Notes</p> }
+            @if (i.Latitude is not null)
+            {
+                <p class="small text-secondary mt-2 mb-0">Recorded at @i.Latitude?.ToString("0.0000"), @i.Longitude?.ToString("0.0000")</p>
+            }
+        </section>
+    }
+    else if (Model.CanRecord)
+    {
+        <form method="post" class="panel">
+            <div asp-validation-summary="ModelOnly" class="alert alert-danger" role="alert"></div>
+            <fieldset class="mb-3">
+                <legend class="form-label fw-semibold">Result</legend>
+                <div class="outcome-grid">
+                    @foreach (var (value, label, css) in new[] { (InspectionResult.Passed, "Pass", "pass"), (InspectionResult.Failed, "Fail", "fail"), (InspectionResult.Cancelled, "Cancel / no access", "cancel") })
+                    {
+                        <label class="outcome outcome-@css">
+                            <input type="radio" name="Outcome" value="@value" checked="@(Model.Outcome == value)" />
+                            <span>@label</span>
+                        </label>
+                    }
+                </div>
+            </fieldset>
+            <label for="Notes" class="form-label fw-semibold">Notes <span class="fw-normal text-secondary small">(required when failing: list each violation)</span></label>
+            <textarea id="Notes" name="Notes" class="form-control mb-3" rows="5">@Model.Notes</textarea>
+
+            <input type="hidden" name="Latitude" id="Latitude" value="@Model.Latitude" />
+            <input type="hidden" name="Longitude" id="Longitude" value="@Model.Longitude" />
+            <p class="small mb-3">
+                <button type="button" class="btn btn-sm btn-outline-secondary" id="locate">Attach my location</button>
+                <span id="locate-status" class="text-secondary ms-2">Proves the inspection was done on site.</span>
+            </p>
+
+            <button type="submit" class="btn btn-primary btn-lg w-100">Save result</button>
+            <p class="small text-secondary mt-2 mb-0">Need to add photos? Upload them on the <a asp-page="/Permits/Details" asp-route-id="@p.Id">permit page</a>.</p>
+        </form>
+    }
+    else
+    {
+        <section class="panel"><p class="empty mb-0">Only the assigned inspector can record this result.</p></section>
+    }
+</div>
+
+@section Scripts {
+    <script>
+        document.getElementById("locate")?.addEventListener("click", () => {
+            const status = document.getElementById("locate-status");
+            if (!navigator.geolocation) { status.textContent = "Location isn't available on this device."; return; }
+            status.textContent = "Locating…";
+            navigator.geolocation.getCurrentPosition(pos => {
+                document.getElementById("Latitude").value = pos.coords.latitude;
+                document.getElementById("Longitude").value = pos.coords.longitude;
+                status.textContent = `Attached ${pos.coords.latitude.toFixed(4)}, ${pos.coords.longitude.toFixed(4)} (±${Math.round(pos.coords.accuracy)} m)`;
+            }, err => status.textContent = `Couldn't get location: ${err.message}`, { enableHighAccuracy: true, timeout: 10000 });
+        });
+    </script>
+}

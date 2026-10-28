@@ -1,0 +1,9 @@
+bin/
+obj/
+.vs/
+*.user
+App_Data/
+TestResults/
+# Local release build made by scripts/publish.ps1 for the desktop shortcut
+/app/
+.claude/

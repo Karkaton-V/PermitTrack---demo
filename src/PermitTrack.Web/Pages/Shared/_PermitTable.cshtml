@@ -1,0 +1,37 @@
+@model IEnumerable<Permit>
+
+@if (!Model.Any())
+{
+    <p class="empty">No permits to show.</p>
+}
+else
+{
+    <div class="table-responsive">
+        <table class="table data-table align-middle mb-0">
+            <thead>
+                <tr>
+                    <th>Permit</th>
+                    <th>Type</th>
+                    <th>Address</th>
+                    <th>Status</th>
+                    <th class="text-end">Fee</th>
+                    <th>Updated</th>
+                </tr>
+            </thead>
+            <tbody>
+                @foreach (var p in Model)
+                {
+                    var updated = new[] { p.CreatedAt, p.SubmittedAt, p.IssuedAt, p.FinaledAt }.Max();
+                    <tr>
+                        <td><a asp-page="/Permits/Details" asp-route-id="@p.Id" class="fw-semibold">@p.Number</a></td>
+                        <td>@p.Type</td>
+                        <td class="text-truncate" style="max-width: 18rem">@p.Address</td>
+                        <td><span class="badge-status @Ui.StatusClass(p.Status)">@Ui.Label(p.Status)</span></td>
+                        <td class="text-end">@p.FeeTotal.ToString("C")@if (!p.FeePaid && p.Status != PermitStatus.Draft && !PermitWorkflow.IsClosed(p.Status)) {<span class="text-danger small d-block">unpaid</span>}</td>
+                        <td class="text-secondary small">@updated?.ToString("MMM d")</td>
+                    </tr>
+                }
+            </tbody>
+        </table>
+    </div>
+}

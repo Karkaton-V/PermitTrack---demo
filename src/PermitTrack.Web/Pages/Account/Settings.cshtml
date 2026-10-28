@@ -1,0 +1,213 @@
+@page
+@model PermitTrack.Web.Pages.Account.SettingsModel
+@{
+    ViewData["Title"] = "Settings";
+    var swatches = new Dictionary<ThemeColor, string>
+    {
+        [ThemeColor.Navy] = "#1f4e79", [ThemeColor.Forest] = "#2d6a4f", [ThemeColor.Plum] = "#6b3fa0",
+        [ThemeColor.Slate] = "#3f4b5b", [ThemeColor.Sunset] = "#b4461b", [ThemeColor.Teal] = "#0f766e",
+    };
+}
+
+<div class="page-head">
+    <div>
+        <h1>Settings</h1>
+        <p class="text-secondary mb-0">Changes preview instantly. They're saved to your account when you click Save.</p>
+    </div>
+</div>
+
+<form method="post" id="settings-form">
+    <div class="settings-grid">
+        <section class="panel" aria-labelledby="appearance-h">
+            <h2 class="panel-title" id="appearance-h">Appearance</h2>
+
+            <fieldset class="mb-4">
+                <legend class="form-label fw-semibold">Color theme</legend>
+                <div class="swatches">
+                    @foreach (var (theme, hex) in swatches)
+                    {
+                        <label class="swatch">
+                            <input type="radio" name="Theme" value="@theme" checked="@(Model.Theme == theme)" data-preview="theme" />
+                            <span class="swatch-face"><span class="swatch-dot" style="background: @hex"></span>@theme</span>
+                        </label>
+                    }
+                </div>
+            </fieldset>
+
+            <fieldset class="mb-4">
+                <legend class="form-label fw-semibold">Light or dark</legend>
+                <div class="seg-group">
+                    @foreach (var mode in Enum.GetValues<ColorMode>())
+                    {
+                        <label class="seg">
+                            <input type="radio" name="Mode" value="@mode" checked="@(Model.Mode == mode)" data-preview="mode" />
+                            <span>@(mode == ColorMode.System ? "Match my device" : mode.ToString())</span>
+                        </label>
+                    }
+                </div>
+            </fieldset>
+
+            <fieldset>
+                <legend class="form-label fw-semibold">Density</legend>
+                <div class="seg-group">
+                    @foreach (var d in Enum.GetValues<Density>())
+                    {
+                        <label class="seg">
+                            <input type="radio" name="Density" value="@d" checked="@(Model.Density == d)" data-preview="density" />
+                            <span>@d</span>
+                        </label>
+                    }
+                </div>
+                <div class="form-text">Compact fits more rows on screen.</div>
+            </fieldset>
+        </section>
+
+        <section class="panel" id="dashboard" aria-labelledby="dashboard-h">
+            <h2 class="panel-title" id="dashboard-h">Dashboard layout</h2>
+
+            <fieldset class="mb-3">
+                <legend class="form-label fw-semibold">Columns</legend>
+                <div class="seg-group">
+                    @for (var c = 1; c <= 3; c++)
+                    {
+                        <label class="seg">
+                            <input type="radio" name="Columns" value="@c" checked="@(Model.Columns == c)" data-preview="columns" />
+                            <span>@c column@(c == 1 ? "" : "s")</span>
+                        </label>
+                    }
+                </div>
+                <div class="layout-preview" id="layout-preview" style="--cols: @Model.Columns" aria-hidden="true"></div>
+                <div class="form-text">Preview of your dashboard. On small screens widgets always stack.</div>
+            </fieldset>
+
+            <p class="form-label fw-semibold mb-1">Widgets</p>
+            <p class="small text-secondary">Drag <span aria-hidden="true">⠿</span> or use the arrows to reorder. Untick to hide. "Full row" stretches a widget across every column.</p>
+            <ul class="widget-list" id="widget-list">
+                @foreach (var w in Model.Widgets)
+                {
+                    var def = WidgetCatalog.Find(w.Id)!;
+                    <li class="widget-item @(w.Visible ? "" : "is-hidden")" data-id="@w.Id" data-title="@def.Title">
+                        <span class="drag-handle" title="Drag to reorder" aria-hidden="true">⠿</span>
+                        <input type="hidden" data-field="Id" value="@w.Id" />
+                        <input type="checkbox" class="form-check-input m-0" data-field="Visible" value="true" checked="@w.Visible" aria-label="Show @def.Title" />
+                        <span class="widget-name">@def.Title<small>@def.Description</small></span>
+                        <select class="form-select form-select-sm" data-field="Size" aria-label="@def.Title width">
+                            <option value="@WidgetSize.Normal" selected="@(w.Size == WidgetSize.Normal)">Normal</option>
+                            <option value="@WidgetSize.Wide" selected="@(w.Size == WidgetSize.Wide)">Full row</option>
+                        </select>
+                        <span class="move-btns">
+                            <button type="button" class="btn btn-sm btn-outline-secondary" data-move="-1" aria-label="Move @def.Title up">↑</button>
+                            <button type="button" class="btn btn-sm btn-outline-secondary" data-move="1" aria-label="Move @def.Title down">↓</button>
+                        </span>
+                    </li>
+                }
+            </ul>
+        </section>
+    </div>
+
+    <div class="save-bar">
+        <button type="submit" asp-page-handler="Reset" class="btn btn-link text-secondary" formnovalidate
+                onclick="return confirm('Reset theme and dashboard to the defaults?')">Reset to defaults</button>
+        <a asp-page="/Index" class="btn btn-outline-secondary">Cancel</a>
+        <button type="submit" class="btn btn-primary">Save settings</button>
+    </div>
+</form>
+
+@section Scripts {
+    <script>
+        (() => {
+            const root = document.documentElement;
+            const form = document.getElementById("settings-form");
+            const list = document.getElementById("widget-list");
+            const preview = document.getElementById("layout-preview");
+            const dark = matchMedia("(prefers-color-scheme: dark)");
+
+            // Live preview of appearance choices.
+            function applyAppearance() {
+                const val = name => form.querySelector(`input[name='${name}']:checked`)?.value.toLowerCase();
+                root.dataset.theme = val("Theme");
+                root.dataset.mode = val("Mode");
+                root.dataset.bsTheme = val("Mode") === "dark" || (val("Mode") === "system" && dark.matches) ? "dark" : "light";
+                root.dataset.density = val("Density");
+                preview.style.setProperty("--cols", val("Columns"));
+            }
+
+            // Mini map of the dashboard: visible widgets in order, wide ones spanning the row.
+            function renderPreview() {
+                preview.replaceChildren(...[...list.children]
+                    .filter(li => li.querySelector("[data-field=Visible]").checked)
+                    .map(li => {
+                        const d = document.createElement("div");
+                        d.textContent = li.dataset.title;
+                        if (li.querySelector("[data-field=Size]").value === "Wide") d.className = "wide";
+                        return d;
+                    }));
+                if (!preview.children.length) preview.textContent = "";
+            }
+
+            function refresh() {
+                [...list.children].forEach(li => li.classList.toggle("is-hidden", !li.querySelector("[data-field=Visible]").checked));
+                renderPreview();
+            }
+
+            form.addEventListener("change", e => {
+                if (e.target.dataset.preview) applyAppearance();
+                refresh();
+            });
+
+            // Arrow buttons.
+            list.addEventListener("click", e => {
+                const btn = e.target.closest("[data-move]");
+                if (!btn) return;
+                const li = btn.closest("li");
+                if (btn.dataset.move === "-1" && li.previousElementSibling) li.previousElementSibling.before(li);
+                if (btn.dataset.move === "1" && li.nextElementSibling) li.nextElementSibling.after(li);
+                btn.focus();
+                refresh();
+            });
+
+            // Drag and drop, started from the handle only so selects and checkboxes still work normally.
+            let dragged = null;
+            list.addEventListener("pointerdown", e => {
+                const li = e.target.closest("li");
+                if (li) li.draggable = !!e.target.closest(".drag-handle");
+            });
+            list.addEventListener("dragstart", e => {
+                dragged = e.target.closest("li");
+                dragged.classList.add("dragging");
+                e.dataTransfer.effectAllowed = "move";
+            });
+            list.addEventListener("dragover", e => {
+                if (!dragged) return;
+                e.preventDefault();
+                const over = e.target.closest("li");
+                list.querySelectorAll(".drop-target").forEach(x => x.classList.remove("drop-target"));
+                if (!over || over === dragged) return;
+                const after = e.clientY > over.getBoundingClientRect().top + over.offsetHeight / 2;
+                after ? over.after(dragged) : over.before(dragged);
+            });
+            list.addEventListener("dragend", () => {
+                dragged?.classList.remove("dragging");
+                dragged.draggable = false;
+                dragged = null;
+                refresh();
+            });
+
+            // Give fields indexed names in their current order just before posting.
+            form.addEventListener("submit", () => {
+                [...list.children].forEach((li, i) => li.querySelectorAll("[data-field]").forEach(el => {
+                    el.name = `Widgets[${i}].${el.dataset.field}`;
+                }));
+                // Unticked checkboxes aren't posted, so send an explicit false for them.
+                list.querySelectorAll("[data-field=Visible]:not(:checked)").forEach(cb => {
+                    const hidden = document.createElement("input");
+                    hidden.type = "hidden"; hidden.name = cb.name; hidden.value = "false";
+                    form.appendChild(hidden);
+                });
+            });
+
+            applyAppearance();
+            refresh();
+        })();
+    </script>
+}

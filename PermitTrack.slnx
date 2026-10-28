@@ -1,0 +1,8 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/PermitTrack.Web/PermitTrack.Web.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/PermitTrack.Tests/PermitTrack.Tests.csproj" />
+  </Folder>
+</Solution>
